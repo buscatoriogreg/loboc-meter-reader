@@ -5,7 +5,7 @@ import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
 import 'package:http/http.dart' as http;
-import 'package:blue_thermal_printer/blue_thermal_printer.dart';
+import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
 
@@ -282,9 +282,8 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _autoDownloading = false;
 
   // Bluetooth printer
-  BlueThermalPrinter bluetooth = BlueThermalPrinter.instance;
-  List<BluetoothDevice> _btDevices = [];
-  BluetoothDevice? _selectedDevice;
+  List<BluetoothInfo> _btDevices = [];
+  BluetoothInfo? _selectedDevice;
   bool _btConnected = false;
 
   @override
@@ -584,18 +583,22 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _scanBtDevices() async {
     try {
-      _btDevices = await bluetooth.getBondedDevices();
+      _btDevices = await PrintBluetoothThermal.pairedBluetooths;
       setState(() {});
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Bluetooth error: $e')));
     }
   }
 
-  Future<void> _connectPrinter(BluetoothDevice device) async {
+  Future<void> _connectPrinter(BluetoothInfo device) async {
     try {
-      await bluetooth.connect(device);
-      setState(() { _selectedDevice = device; _btConnected = true; });
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Connected to ${device.name}'), backgroundColor: primaryBlue));
+      final connected = await PrintBluetoothThermal.connect(macPrinterAddress: device.macAdress);
+      if (connected) {
+        setState(() { _selectedDevice = device; _btConnected = true; });
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Connected to ${device.name}'), backgroundColor: primaryBlue));
+      } else {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to connect')));
+      }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to connect: $e')));
     }
@@ -603,9 +606,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _disconnectPrinter() async {
     try {
-      await bluetooth.disconnect();
+      await PrintBluetoothThermal.disconnect;
       setState(() { _btConnected = false; _selectedDevice = null; });
     } catch (_) {}
+  }
+
+  String _padRight(String text, int width) => text.length >= width ? text : text + ' ' * (width - text.length);
+  String _padLeft(String text, int width) => text.length >= width ? text : ' ' * (width - text.length) + text;
+  String _leftRight(String left, String right, {int width = 32}) {
+    final gap = width - left.length - right.length;
+    return left + (gap > 0 ? ' ' * gap : ' ') + right;
   }
 
   Future<void> _printReceipt(Map<String, dynamic> consumer, dynamic reading) async {
@@ -616,33 +626,41 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final now = DateTime.now();
       final dateStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
-      bluetooth.printNewLine();
-      bluetooth.printCustom('LOBOC MUNICIPAL', 2, 1); // size 2, align center
-      bluetooth.printCustom('WATERWORKS', 2, 1);
-      bluetooth.printCustom('Meter Reading Receipt', 1, 1);
-      bluetooth.printCustom('--------------------------------', 0, 1);
-      bluetooth.printLeftRight('Date:', dateStr, 1);
-      bluetooth.printLeftRight('Name:', consumer['name'] ?? '', 1);
-      bluetooth.printLeftRight('Account:', consumer['account_code'] ?? '', 1);
-      bluetooth.printCustom('--------------------------------', 0, 1);
+
+      List<int> bytes = [];
+      // ESC/POS commands
+      bytes += [27, 64]; // Initialize
+      bytes += [27, 97, 1]; // Center align
+      bytes += [27, 33, 16]; // Double height
+      bytes += 'LOBOC MUNICIPAL\n'.codeUnits;
+      bytes += 'WATERWORKS\n'.codeUnits;
+      bytes += [27, 33, 0]; // Normal
+      bytes += 'Meter Reading Receipt\n'.codeUnits;
+      bytes += [27, 97, 0]; // Left align
+      bytes += '--------------------------------\n'.codeUnits;
+      bytes += '${_leftRight('Date:', dateStr)}\n'.codeUnits;
+      bytes += '${_leftRight('Name:', consumer['name'] ?? '')}\n'.codeUnits;
+      bytes += '${_leftRight('Account:', consumer['account_code'] ?? '')}\n'.codeUnits;
+      bytes += '--------------------------------\n'.codeUnits;
       if (consumer['last_reading'] != null) {
-        bluetooth.printLeftRight('Prev Reading:', '${consumer['last_reading']}', 1);
-        bluetooth.printLeftRight('Prev Date:', '${consumer['last_reading_date']}', 1);
+        bytes += '${_leftRight('Prev Reading:', '${consumer['last_reading']}')}\n'.codeUnits;
+        bytes += '${_leftRight('Prev Date:', '${consumer['last_reading_date']}')}\n'.codeUnits;
       }
-      bluetooth.printLeftRight('New Reading:', '$reading', 1);
-      bluetooth.printLeftRight('Reading Date:', _readingDate, 1);
+      bytes += '${_leftRight('New Reading:', '$reading')}\n'.codeUnits;
+      bytes += '${_leftRight('Reading Date:', _readingDate)}\n'.codeUnits;
       if (consumer['last_reading'] != null) {
         final prev = int.tryParse('${consumer['last_reading']}') ?? 0;
         final curr = int.tryParse('$reading') ?? 0;
         final usage = curr - prev;
-        bluetooth.printCustom('--------------------------------', 0, 1);
-        bluetooth.printLeftRight('Usage (cu.m.):', '$usage', 1);
+        bytes += '--------------------------------\n'.codeUnits;
+        bytes += '${_leftRight('Usage (cu.m.):', '$usage')}\n'.codeUnits;
       }
-      bluetooth.printCustom('--------------------------------', 0, 1);
-      bluetooth.printCustom('Thank you!', 1, 1);
-      bluetooth.printNewLine();
-      bluetooth.printNewLine();
-      bluetooth.printNewLine();
+      bytes += '--------------------------------\n'.codeUnits;
+      bytes += [27, 97, 1]; // Center
+      bytes += 'Thank you!\n'.codeUnits;
+      bytes += '\n\n\n'.codeUnits;
+
+      await PrintBluetoothThermal.writeBytes(bytes);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Receipt printed'), backgroundColor: primaryBlue));
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Print error: $e')));
@@ -660,8 +678,8 @@ class _HomeScreenState extends State<HomeScreen> {
           else
             ...(_btDevices.map((d) => ListTile(
               leading: const Icon(Icons.print, color: primaryBlue),
-              title: Text(d.name ?? 'Unknown'),
-              subtitle: Text(d.address ?? ''),
+              title: Text(d.name),
+              subtitle: Text(d.macAdress),
               onTap: () async {
                 Navigator.pop(ctx);
                 await _connectPrinter(d);
@@ -965,7 +983,7 @@ class _HomeScreenState extends State<HomeScreen> {
         if (_btConnected && _selectedDevice != null)
           ListTile(
             leading: const Icon(Icons.print, color: primaryBlue),
-            title: Text(_selectedDevice!.name ?? 'Printer'),
+            title: Text(_selectedDevice!.name),
             subtitle: const Text('Connected', style: TextStyle(color: Colors.green)),
             trailing: OutlinedButton(onPressed: _disconnectPrinter, child: const Text('Disconnect')),
             shape: RoundedRectangleBorder(side: const BorderSide(color: Colors.green), borderRadius: BorderRadius.circular(8)),
@@ -983,8 +1001,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     else
                       ...(_btDevices.map((d) => ListTile(
                         leading: const Icon(Icons.bluetooth, color: primaryBlue),
-                        title: Text(d.name ?? 'Unknown'),
-                        subtitle: Text(d.address ?? ''),
+                        title: Text(d.name),
+                        subtitle: Text(d.macAdress),
                         onTap: () { Navigator.pop(ctx); _connectPrinter(d); },
                       ))),
                   ])),
