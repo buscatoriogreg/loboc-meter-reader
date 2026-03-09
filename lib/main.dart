@@ -11,8 +11,8 @@ import 'package:open_filex/open_filex.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 const String apiBase = 'https://loboc.rgbwater.com/api';
-const String appVersion = '2.2.0';
-const int appBuildNumber = 3;
+const String appVersion = '2.3.0';
+const int appBuildNumber = 4;
 const Color primaryBlue = Color(0xFF1565C0);
 const Color lightBlue = Color(0xFF1976D2);
 const Color accentBlue = Color(0xFF42A5F5);
@@ -275,6 +275,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Map<String, dynamic> _pendingReadings = {};
   Map<String, List<dynamic>> _cachedConsumers = {};
   List<dynamic> _cachedBarangays = [];
+  List<dynamic> _cachedRates = [];
 
   Timer? _syncTimer;
   Timer? _autoDownloadTimer;
@@ -351,12 +352,14 @@ class _HomeScreenState extends State<HomeScreen> {
     final pendingStr = prefs.getString('pending_readings');
     final barangaysStr = prefs.getString('cached_barangays');
     final consumersStr = prefs.getString('cached_consumers');
+    final ratesStr = prefs.getString('cached_rates');
     if (pendingStr != null) _pendingReadings = json.decode(pendingStr);
     if (barangaysStr != null) _cachedBarangays = json.decode(barangaysStr);
     if (consumersStr != null) {
       _cachedConsumers = (json.decode(consumersStr) as Map<String, dynamic>)
           .map((k, v) => MapEntry(k, List<dynamic>.from(v)));
     }
+    if (ratesStr != null) _cachedRates = json.decode(ratesStr);
     setState(() {});
   }
 
@@ -365,6 +368,7 @@ class _HomeScreenState extends State<HomeScreen> {
     await prefs.setString('pending_readings', json.encode(_pendingReadings));
     await prefs.setString('cached_barangays', json.encode(_cachedBarangays));
     await prefs.setString('cached_consumers', json.encode(_cachedConsumers));
+    await prefs.setString('cached_rates', json.encode(_cachedRates));
   }
 
   Future<void> _autoDownloadIfOnline() async {
@@ -566,6 +570,13 @@ class _HomeScreenState extends State<HomeScreen> {
             totalConsumers += consumers.length as int;
           }
         }
+        // Download rates
+        try {
+          final rResp = await _authGet('/rates');
+          if (rResp.statusCode == 200) {
+            _cachedRates = json.decode(rResp.body);
+          }
+        } catch (_) {}
         await _saveOfflineData();
         if (!silent && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -652,6 +663,23 @@ class _HomeScreenState extends State<HomeScreen> {
     return left + (gap > 0 ? ' ' * gap : ' ') + right;
   }
 
+  double _calculateBill(int consumption, String consumerType) {
+    // Filter rates for this consumer type, sorted by min_cu_m
+    final rates = _cachedRates
+        .where((r) => r['consumer_type'] == consumerType)
+        .toList()
+      ..sort((a, b) => (a['min_cu_m'] as num).compareTo(b['min_cu_m'] as num));
+    if (rates.isEmpty) return 0;
+
+    final minimum = double.tryParse('${rates[0]['rate']}') ?? 0;
+    final tier2Rate = rates.length > 1 ? (double.tryParse('${rates[1]['rate']}') ?? 0) : 0;
+    final tier3Rate = rates.length > 2 ? (double.tryParse('${rates[2]['rate']}') ?? 0) : 0;
+
+    if (consumption <= 10) return minimum;
+    if (consumption <= 15) return minimum + (consumption - 10) * tier2Rate;
+    return minimum + 5 * tier2Rate + (consumption - 15) * tier3Rate;
+  }
+
   Future<void> _printReceipt(Map<String, dynamic> consumer, dynamic reading) async {
     if (!_btConnected) {
       _showPrinterDialog(consumer, reading);
@@ -700,6 +728,14 @@ class _HomeScreenState extends State<HomeScreen> {
         final usage = curr - prev;
         bytes += '--------------------------------\n'.codeUnits;
         bytes += '${_leftRight('Usage (cu.m.):', '$usage')}\n'.codeUnits;
+        // Calculate and show bill amount
+        final consumerType = consumer['consumer_type'] ?? 'Residential';
+        final billAmount = _calculateBill(usage, consumerType);
+        bytes += '${_leftRight('Type:', consumerType)}\n'.codeUnits;
+        bytes += '--------------------------------\n'.codeUnits;
+        bytes += [27, 33, 16]; // Double height for amount
+        bytes += '${_leftRight('AMOUNT DUE:', 'P ${billAmount.toStringAsFixed(2)}')}\n'.codeUnits;
+        bytes += [27, 33, 0]; // Normal
       }
       bytes += '--------------------------------\n'.codeUnits;
       bytes += [27, 97, 1]; // Center
@@ -724,7 +760,7 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const Text('Connect Printer'),
         content: SizedBox(width: double.maxFinite, child: Column(mainAxisSize: MainAxisSize.min, children: [
           if (_btDevices.isEmpty)
-            const Padding(padding: EdgeInsets.all(16), child: Text('No paired Bluetooth devices found.\nPlease pair your MP-210 in Settings first.', textAlign: TextAlign.center))
+            const Padding(padding: EdgeInsets.all(16), child: Text('No paired Bluetooth devices found.\nPlease pair your RPP02N in Settings first.', textAlign: TextAlign.center))
           else
             ...(_btDevices.map((d) => ListTile(
               leading: const Icon(Icons.print, color: primaryBlue),
@@ -1028,7 +1064,7 @@ class _HomeScreenState extends State<HomeScreen> {
       Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('Bluetooth Printer', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         const SizedBox(height: 4),
-        Text('Connect to MP-210 or compatible thermal printer', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+        Text('Connect to RPP02N or compatible thermal printer', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
         const SizedBox(height: 12),
         if (_btConnected && _selectedDevice != null)
           ListTile(
@@ -1047,7 +1083,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   title: const Text('Select Printer'),
                   content: SizedBox(width: double.maxFinite, child: Column(mainAxisSize: MainAxisSize.min, children: [
                     if (_btDevices.isEmpty)
-                      const Padding(padding: EdgeInsets.all(16), child: Text('No paired devices.\nPair your MP-210 in phone Settings first.', textAlign: TextAlign.center))
+                      const Padding(padding: EdgeInsets.all(16), child: Text('No paired devices.\nPair your RPP02N in phone Settings first.', textAlign: TextAlign.center))
                     else
                       ...(_btDevices.map((d) => ListTile(
                         leading: const Icon(Icons.bluetooth, color: primaryBlue),
