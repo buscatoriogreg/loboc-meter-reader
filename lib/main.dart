@@ -4,6 +4,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:convert';
 import 'dart:async';
 import 'package:http/http.dart' as http;
+import 'package:blue_thermal_printer/blue_thermal_printer.dart';
 
 const String apiBase = 'https://loboc.rgbwater.com/api';
 const Color primaryBlue = Color(0xFF1565C0);
@@ -129,6 +130,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
       final data = json.decode(resp.body);
       if (resp.statusCode == 200 && data['status'] == 'ok') {
+        final role = data['user']?['role'] ?? '';
+        if (role == 'Cashier') {
+          setState(() => _error = 'Cashier accounts cannot access the Meter Reader app');
+          if (mounted) setState(() => _loading = false);
+          return;
+        }
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('auth_token', data['token']);
         await prefs.setString('auth_user', json.encode(data['user']));
@@ -268,6 +275,12 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _userName;
   String? _userRole;
   bool _autoDownloading = false;
+
+  // Bluetooth printer
+  BlueThermalPrinter bluetooth = BlueThermalPrinter.instance;
+  List<BluetoothDevice> _btDevices = [];
+  BluetoothDevice? _selectedDevice;
+  bool _btConnected = false;
 
   @override
   void initState() {
@@ -475,6 +488,101 @@ class _HomeScreenState extends State<HomeScreen> {
     if (silent && mounted) setState(() {});
   }
 
+  Future<void> _scanBtDevices() async {
+    try {
+      _btDevices = await bluetooth.getBondedDevices();
+      setState(() {});
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Bluetooth error: $e')));
+    }
+  }
+
+  Future<void> _connectPrinter(BluetoothDevice device) async {
+    try {
+      await bluetooth.connect(device);
+      setState(() { _selectedDevice = device; _btConnected = true; });
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Connected to ${device.name}'), backgroundColor: primaryBlue));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to connect: $e')));
+    }
+  }
+
+  Future<void> _disconnectPrinter() async {
+    try {
+      await bluetooth.disconnect();
+      setState(() { _btConnected = false; _selectedDevice = null; });
+    } catch (_) {}
+  }
+
+  Future<void> _printReceipt(Map<String, dynamic> consumer, dynamic reading) async {
+    if (!_btConnected) {
+      _showPrinterDialog(consumer, reading);
+      return;
+    }
+    try {
+      final now = DateTime.now();
+      final dateStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+      bluetooth.printNewLine();
+      bluetooth.printCustom('LOBOC MUNICIPAL', 2, 1); // size 2, align center
+      bluetooth.printCustom('WATERWORKS', 2, 1);
+      bluetooth.printCustom('Meter Reading Receipt', 1, 1);
+      bluetooth.printCustom('--------------------------------', 0, 1);
+      bluetooth.printLeftRight('Date:', dateStr, 1);
+      bluetooth.printLeftRight('Name:', consumer['name'] ?? '', 1);
+      bluetooth.printLeftRight('Account:', consumer['account_code'] ?? '', 1);
+      bluetooth.printCustom('--------------------------------', 0, 1);
+      if (consumer['last_reading'] != null) {
+        bluetooth.printLeftRight('Prev Reading:', '${consumer['last_reading']}', 1);
+        bluetooth.printLeftRight('Prev Date:', '${consumer['last_reading_date']}', 1);
+      }
+      bluetooth.printLeftRight('New Reading:', '$reading', 1);
+      bluetooth.printLeftRight('Reading Date:', _readingDate, 1);
+      if (consumer['last_reading'] != null) {
+        final prev = int.tryParse('${consumer['last_reading']}') ?? 0;
+        final curr = int.tryParse('$reading') ?? 0;
+        final usage = curr - prev;
+        bluetooth.printCustom('--------------------------------', 0, 1);
+        bluetooth.printLeftRight('Usage (cu.m.):', '$usage', 1);
+      }
+      bluetooth.printCustom('--------------------------------', 0, 1);
+      bluetooth.printCustom('Thank you!', 1, 1);
+      bluetooth.printNewLine();
+      bluetooth.printNewLine();
+      bluetooth.printNewLine();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Receipt printed'), backgroundColor: primaryBlue));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Print error: $e')));
+    }
+  }
+
+  void _showPrinterDialog(Map<String, dynamic> consumer, dynamic reading) {
+    _scanBtDevices();
+    showDialog(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, setDialogState) {
+      return AlertDialog(
+        title: const Text('Connect Printer'),
+        content: SizedBox(width: double.maxFinite, child: Column(mainAxisSize: MainAxisSize.min, children: [
+          if (_btDevices.isEmpty)
+            const Padding(padding: EdgeInsets.all(16), child: Text('No paired Bluetooth devices found.\nPlease pair your MP-210 in Settings first.', textAlign: TextAlign.center))
+          else
+            ...(_btDevices.map((d) => ListTile(
+              leading: const Icon(Icons.print, color: primaryBlue),
+              title: Text(d.name ?? 'Unknown'),
+              subtitle: Text(d.address ?? ''),
+              onTap: () async {
+                Navigator.pop(ctx);
+                await _connectPrinter(d);
+                if (_btConnected) _printReceipt(consumer, reading);
+              },
+            ))),
+        ])),
+        actions: [
+          TextButton(onPressed: () { _scanBtDevices(); setDialogState(() {}); }, child: const Text('Refresh')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+        ],
+      );
+    }));
+  }
+
   Future<void> _logout() async {
     try { await _authPost('/auth/logout', {}); } catch (_) {}
     final prefs = await SharedPreferences.getInstance();
@@ -612,21 +720,47 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 2),
                     Text(c['account_code'], style: TextStyle(color: Colors.grey[600], fontSize: 12)),
                     if (c['last_reading'] != null)
-                      Padding(padding: const EdgeInsets.only(top: 2),
-                        child: Text('Last: ${c['last_reading']} (${c['last_reading_date']})', style: TextStyle(color: Colors.grey[500], fontSize: 11))),
+                      Padding(padding: const EdgeInsets.only(top: 4),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: primaryBlue.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            const Icon(Icons.speed, size: 16, color: primaryBlue),
+                            const SizedBox(width: 4),
+                            Text('Last: ${c['last_reading']}',
+                              style: const TextStyle(color: primaryBlue, fontSize: 14, fontWeight: FontWeight.bold)),
+                            Text('  ${c['last_reading_date']}',
+                              style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                          ]),
+                        )),
                   ])),
-                  SizedBox(width: 100, child: TextField(
-                    controller: _readingControllers[c['id']],
-                    decoration: InputDecoration(hintText: 'Reading',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: hasReading ? primaryBlue : Colors.grey[400]!)),
-                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: primaryBlue, width: 2)),
-                      isDense: true, contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                      suffixIcon: hasReading ? const Icon(Icons.check_circle, color: primaryBlue, size: 20) : null),
-                    keyboardType: TextInputType.number, textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    onChanged: (v) => _saveReading(c['id'], v),
-                  )),
+                  Column(children: [
+                    SizedBox(width: 100, child: TextField(
+                      controller: _readingControllers[c['id']],
+                      decoration: InputDecoration(hintText: 'Reading',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: hasReading ? primaryBlue : Colors.grey[400]!)),
+                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: primaryBlue, width: 2)),
+                        isDense: true, contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                        suffixIcon: hasReading ? const Icon(Icons.check_circle, color: primaryBlue, size: 20) : null),
+                      keyboardType: TextInputType.number, textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      onChanged: (v) => _saveReading(c['id'], v),
+                    )),
+                    if (hasReading)
+                      Padding(padding: const EdgeInsets.only(top: 4),
+                        child: SizedBox(width: 100, height: 28,
+                          child: OutlinedButton.icon(
+                            onPressed: () => _printReceipt(Map<String, dynamic>.from(c), _pendingReadings[key]),
+                            icon: const Icon(Icons.print, size: 14),
+                            label: const Text('Print', style: TextStyle(fontSize: 11)),
+                            style: OutlinedButton.styleFrom(foregroundColor: primaryBlue, padding: EdgeInsets.zero,
+                              side: const BorderSide(color: primaryBlue, width: 0.5)),
+                          ))),
+                  ]),
                 ])),
             );
           },
@@ -727,6 +861,48 @@ class _HomeScreenState extends State<HomeScreen> {
         SizedBox(width: double.infinity, child: FilledButton.icon(
           onPressed: () => _downloadAllData(), icon: const Icon(Icons.download), label: const Text('Download All Data Now'),
           style: FilledButton.styleFrom(backgroundColor: primaryBlue))),
+      ]))),
+      const SizedBox(height: 12),
+      Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Bluetooth Printer', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        const SizedBox(height: 4),
+        Text('Connect to MP-210 or compatible thermal printer', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+        const SizedBox(height: 12),
+        if (_btConnected && _selectedDevice != null)
+          ListTile(
+            leading: const Icon(Icons.print, color: primaryBlue),
+            title: Text(_selectedDevice!.name ?? 'Printer'),
+            subtitle: const Text('Connected', style: TextStyle(color: Colors.green)),
+            trailing: OutlinedButton(onPressed: _disconnectPrinter, child: const Text('Disconnect')),
+            shape: RoundedRectangleBorder(side: const BorderSide(color: Colors.green), borderRadius: BorderRadius.circular(8)),
+          )
+        else
+          SizedBox(width: double.infinity, child: FilledButton.icon(
+            onPressed: () {
+              _scanBtDevices();
+              showDialog(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, setDialogState) {
+                return AlertDialog(
+                  title: const Text('Select Printer'),
+                  content: SizedBox(width: double.maxFinite, child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    if (_btDevices.isEmpty)
+                      const Padding(padding: EdgeInsets.all(16), child: Text('No paired devices.\nPair your MP-210 in phone Settings first.', textAlign: TextAlign.center))
+                    else
+                      ...(_btDevices.map((d) => ListTile(
+                        leading: const Icon(Icons.bluetooth, color: primaryBlue),
+                        title: Text(d.name ?? 'Unknown'),
+                        subtitle: Text(d.address ?? ''),
+                        onTap: () { Navigator.pop(ctx); _connectPrinter(d); },
+                      ))),
+                  ])),
+                  actions: [
+                    TextButton(onPressed: () { _scanBtDevices(); setDialogState(() {}); }, child: const Text('Refresh')),
+                    TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+                  ],
+                );
+              }));
+            },
+            icon: const Icon(Icons.bluetooth), label: const Text('Connect Printer'),
+            style: FilledButton.styleFrom(backgroundColor: primaryBlue))),
       ]))),
       const SizedBox(height: 12),
       Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
