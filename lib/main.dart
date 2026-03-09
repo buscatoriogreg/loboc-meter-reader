@@ -8,10 +8,11 @@ import 'package:http/http.dart' as http;
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 const String apiBase = 'https://loboc.rgbwater.com/api';
-const String appVersion = '2.1.0';
-const int appBuildNumber = 2;
+const String appVersion = '2.2.0';
+const int appBuildNumber = 3;
 const Color primaryBlue = Color(0xFF1565C0);
 const Color lightBlue = Color(0xFF1976D2);
 const Color accentBlue = Color(0xFF42A5F5);
@@ -581,9 +582,29 @@ class _HomeScreenState extends State<HomeScreen> {
     if (silent && mounted) setState(() {});
   }
 
+  Future<bool> _requestBtPermissions() async {
+    Map<Permission, PermissionStatus> statuses = await [
+      Permission.bluetoothConnect,
+      Permission.bluetoothScan,
+      Permission.locationWhenInUse,
+    ].request();
+    final allGranted = statuses.values.every((s) => s.isGranted);
+    if (!allGranted && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bluetooth permissions are required for printing')));
+    }
+    return allGranted;
+  }
+
   Future<void> _scanBtDevices() async {
     try {
+      final granted = await _requestBtPermissions();
+      if (!granted) return;
       _btDevices = await PrintBluetoothThermal.pairedBluetooths;
+      if (_btDevices.isEmpty && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No paired Bluetooth devices found. Pair your printer in phone Settings first.')));
+      }
       setState(() {});
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Bluetooth error: $e')));
@@ -591,16 +612,29 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _connectPrinter(BluetoothInfo device) async {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Connecting to ${device.name}...'), backgroundColor: Colors.orange, duration: const Duration(seconds: 2)));
     try {
+      // Disconnect any existing connection first
+      try { await PrintBluetoothThermal.disconnect; } catch (_) {}
+      await Future.delayed(const Duration(milliseconds: 500));
+
       final connected = await PrintBluetoothThermal.connect(macPrinterAddress: device.macAdress);
       if (connected) {
-        setState(() { _selectedDevice = device; _btConnected = true; });
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Connected to ${device.name}'), backgroundColor: primaryBlue));
+        // Verify connection status
+        await Future.delayed(const Duration(milliseconds: 500));
+        final status = await PrintBluetoothThermal.connectionStatus;
+        if (status) {
+          setState(() { _selectedDevice = device; _btConnected = true; });
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Connected to ${device.name}'), backgroundColor: primaryBlue));
+        } else {
+          setState(() { _btConnected = false; _selectedDevice = null; });
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Connection dropped. Try again.')));
+        }
       } else {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to connect')));
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to connect. Make sure printer is ON and paired.')));
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to connect: $e')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Connection error: $e')));
     }
   }
 
@@ -623,13 +657,25 @@ class _HomeScreenState extends State<HomeScreen> {
       _showPrinterDialog(consumer, reading);
       return;
     }
+    // Verify connection is still active
+    try {
+      final status = await PrintBluetoothThermal.connectionStatus;
+      if (!status) {
+        setState(() { _btConnected = false; _selectedDevice = null; });
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Printer disconnected. Please reconnect.')));
+        _showPrinterDialog(consumer, reading);
+        return;
+      }
+    } catch (_) {}
+
     try {
       final now = DateTime.now();
       final dateStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
 
       List<int> bytes = [];
       // ESC/POS commands
-      bytes += [27, 64]; // Initialize
+      bytes += [27, 64]; // Initialize printer
       bytes += [27, 97, 1]; // Center align
       bytes += [27, 33, 16]; // Double height
       bytes += 'LOBOC MUNICIPAL\n'.codeUnits;
@@ -660,8 +706,12 @@ class _HomeScreenState extends State<HomeScreen> {
       bytes += 'Thank you!\n'.codeUnits;
       bytes += '\n\n\n'.codeUnits;
 
-      await PrintBluetoothThermal.writeBytes(bytes);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Receipt printed'), backgroundColor: primaryBlue));
+      final result = await PrintBluetoothThermal.writeBytes(bytes);
+      if (result && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Receipt printed'), backgroundColor: primaryBlue));
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Print may have failed. Check printer.')));
+      }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Print error: $e')));
     }
