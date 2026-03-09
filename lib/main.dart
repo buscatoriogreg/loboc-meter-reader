@@ -3,10 +3,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:convert';
 import 'dart:async';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:blue_thermal_printer/blue_thermal_printer.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:open_filex/open_filex.dart';
 
 const String apiBase = 'https://loboc.rgbwater.com/api';
+const String appVersion = '2.1.0';
+const int appBuildNumber = 2;
 const Color primaryBlue = Color(0xFF1565C0);
 const Color lightBlue = Color(0xFF1976D2);
 const Color accentBlue = Color(0xFF42A5F5);
@@ -293,6 +298,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _syncTimer = Timer.periodic(const Duration(minutes: 2), (_) => _syncPending());
     _autoDownloadTimer = Timer.periodic(const Duration(minutes: 10), (_) => _autoDownloadIfOnline());
     Future.delayed(const Duration(seconds: 3), () => _autoDownloadIfOnline());
+    Future.delayed(const Duration(seconds: 5), () => _checkForUpdate());
   }
 
   @override
@@ -373,6 +379,94 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (_) {
       _autoDownloading = false;
     }
+  }
+
+  Future<void> _checkForUpdate({bool manual = false}) async {
+    try {
+      final resp = await http.get(
+        Uri.parse('$apiBase/app/version'),
+        headers: {'Accept': 'application/json'},
+      ).timeout(const Duration(seconds: 10));
+      if (resp.statusCode == 200) {
+        final data = json.decode(resp.body);
+        final serverBuild = data['build_number'] ?? 0;
+        if (serverBuild > appBuildNumber && mounted) {
+          _showUpdateDialog(data['version'] ?? '', data['download_url'] ?? '', data['release_notes'] ?? '');
+        } else if (manual && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('You are on the latest version'), backgroundColor: primaryBlue));
+        }
+      }
+    } catch (e) {
+      if (manual && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not check for updates: $e')));
+      }
+    }
+  }
+
+  void _showUpdateDialog(String version, String downloadUrl, String notes) {
+    showDialog(context: context, barrierDismissible: false, builder: (ctx) {
+      double progress = 0;
+      bool downloading = false;
+      return StatefulBuilder(builder: (ctx, setDialogState) {
+        return AlertDialog(
+          title: const Row(children: [
+            Icon(Icons.system_update, color: primaryBlue),
+            SizedBox(width: 8),
+            Text('Update Available'),
+          ]),
+          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Version $version is available.', style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            if (notes.isNotEmpty) Text(notes, style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+            if (downloading) ...[
+              const SizedBox(height: 16),
+              LinearProgressIndicator(value: progress > 0 ? progress : null, color: primaryBlue),
+              const SizedBox(height: 8),
+              Text(progress > 0 ? '${(progress * 100).toStringAsFixed(0)}% downloaded' : 'Starting download...',
+                style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+            ],
+          ]),
+          actions: downloading ? [] : [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Later')),
+            FilledButton.icon(
+              onPressed: () async {
+                setDialogState(() => downloading = true);
+                try {
+                  final dir = await getExternalStorageDirectory() ?? await getTemporaryDirectory();
+                  final filePath = '${dir.path}/loboc-meter-reader.apk';
+                  final file = File(filePath);
+
+                  final request = http.Request('GET', Uri.parse(downloadUrl));
+                  final streamedResp = await http.Client().send(request);
+                  final totalBytes = streamedResp.contentLength ?? 0;
+                  int receivedBytes = 0;
+
+                  final sink = file.openWrite();
+                  await for (final chunk in streamedResp.stream) {
+                    sink.add(chunk);
+                    receivedBytes += chunk.length;
+                    if (totalBytes > 0) {
+                      setDialogState(() => progress = receivedBytes / totalBytes);
+                    }
+                  }
+                  await sink.close();
+
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  await OpenFilex.open(filePath, type: 'application/vnd.android.package-archive');
+                } catch (e) {
+                  setDialogState(() => downloading = false);
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Download failed: $e')));
+                }
+              },
+              icon: const Icon(Icons.download),
+              label: const Text('Update Now'),
+              style: FilledButton.styleFrom(backgroundColor: primaryBlue),
+            ),
+          ],
+        );
+      });
+    });
   }
 
   Future<void> _loadBarangays() async {
@@ -909,9 +1003,16 @@ class _HomeScreenState extends State<HomeScreen> {
         const Text('About', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         const SizedBox(height: 8),
         const Text('Loboc Municipal Waterworks'),
-        Text('Meter Reader App v2.0.0', style: TextStyle(color: Colors.grey[600])),
+        Text('Meter Reader App v$appVersion (build $appBuildNumber)', style: TextStyle(color: Colors.grey[600])),
         const SizedBox(height: 4),
         Text('Server: $apiBase', style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+        const SizedBox(height: 12),
+        SizedBox(width: double.infinity, child: OutlinedButton.icon(
+          onPressed: () => _checkForUpdate(manual: true),
+          icon: const Icon(Icons.system_update),
+          label: const Text('Check for Updates'),
+          style: OutlinedButton.styleFrom(foregroundColor: primaryBlue),
+        )),
       ]))),
     ]);
   }
