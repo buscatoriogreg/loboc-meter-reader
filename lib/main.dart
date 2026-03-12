@@ -603,11 +603,26 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _loading = false);
   }
 
-  void _saveReading(int consumerId, String value) {
+  final Map<int, String?> _readingErrors = {};
+
+  void _saveReading(int consumerId, String value, dynamic lastReading) {
     final key = '${consumerId}_$_readingDate';
     if (value.trim().isNotEmpty) {
-      _pendingReadings[key] = int.tryParse(value.trim()) ?? value.trim();
+      final newVal = int.tryParse(value.trim());
+      if (newVal != null && lastReading != null) {
+        final prev = int.tryParse('$lastReading') ?? 0;
+        if (newVal < prev) {
+          _readingErrors[consumerId] = 'Must be >= $prev';
+          _pendingReadings.remove(key);
+          _saveOfflineData();
+          setState(() {});
+          return;
+        }
+      }
+      _readingErrors.remove(consumerId);
+      _pendingReadings[key] = newVal ?? value.trim();
     } else {
+      _readingErrors.remove(consumerId);
       _pendingReadings.remove(key);
     }
     _saveOfflineData();
@@ -1131,15 +1146,19 @@ class _HomeScreenState extends State<HomeScreen> {
                         hintText: 'Reading',
                         hintStyle: const TextStyle(color: fbSecondaryText, fontSize: 14),
                         filled: true,
-                        fillColor: hasReading ? fbLightBlue : fbBg,
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                        fillColor: _readingErrors.containsKey(c['id']) ? const Color(0xFFFFE8E8) : (hasReading ? fbLightBlue : fbBg),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
+                          borderSide: _readingErrors.containsKey(c['id']) ? const BorderSide(color: Color(0xFFFA383E), width: 1.5) : BorderSide.none),
                         isDense: true, contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                         suffixIcon: hasReading ? const Icon(Icons.check_circle, color: fbBlue, size: 18) : null,
                       ),
                       keyboardType: TextInputType.number, textAlign: TextAlign.center,
                       style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: fbDarkText),
-                      onChanged: (v) => _saveReading(c['id'], v),
+                      onChanged: (v) => _saveReading(c['id'], v, c['last_reading']),
                     )),
+                    if (_readingErrors.containsKey(c['id']))
+                      Padding(padding: const EdgeInsets.only(top: 2),
+                        child: Text(_readingErrors[c['id']]!, style: const TextStyle(color: Color(0xFFFA383E), fontSize: 10, fontWeight: FontWeight.w600))),
                     if (hasReading)
                       Padding(padding: const EdgeInsets.only(top: 6),
                         child: SizedBox(width: 90, height: 30,
