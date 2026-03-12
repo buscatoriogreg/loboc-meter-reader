@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:convert';
@@ -13,9 +14,15 @@ import 'package:permission_handler/permission_handler.dart';
 const String apiBase = 'https://loboc.rgbwater.com/api';
 const String appVersion = '2.3.0';
 const int appBuildNumber = 4;
-const Color primaryBlue = Color(0xFF1565C0);
-const Color lightBlue = Color(0xFF1976D2);
-const Color accentBlue = Color(0xFF42A5F5);
+
+// Facebook-style colors
+const Color fbBlue = Color(0xFF1877F2);
+const Color fbBg = Color(0xFFF0F2F5);
+const Color fbDarkText = Color(0xFF1C1E21);
+const Color fbSecondaryText = Color(0xFF65676B);
+const Color fbDivider = Color(0xFFCED0D4);
+const Color fbGreen = Color(0xFF42B72A);
+const Color fbLightBlue = Color(0xFFE7F3FF);
 
 void main() => runApp(const MeterReaderApp());
 
@@ -28,12 +35,64 @@ class MeterReaderApp extends StatelessWidget {
       title: 'Loboc Meter Reader',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorSchemeSeed: primaryBlue,
         useMaterial3: true,
+        scaffoldBackgroundColor: fbBg,
+        colorSchemeSeed: fbBlue,
         appBarTheme: const AppBarTheme(
-          backgroundColor: primaryBlue,
-          foregroundColor: Colors.white,
-          elevation: 2,
+          backgroundColor: Colors.white,
+          foregroundColor: fbDarkText,
+          elevation: 0,
+          scrolledUnderElevation: 1,
+          shadowColor: Colors.black26,
+          systemOverlayStyle: SystemUiOverlayStyle(
+            statusBarColor: Colors.transparent,
+            statusBarIconBrightness: Brightness.dark,
+          ),
+        ),
+        cardTheme: CardThemeData(
+          elevation: 0,
+          color: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 0),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            backgroundColor: fbBlue,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            textStyle: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: fbBlue,
+            side: const BorderSide(color: fbDivider),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            textStyle: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+        ),
+        navigationBarTheme: NavigationBarThemeData(
+          backgroundColor: Colors.white,
+          elevation: 0,
+          indicatorColor: fbLightBlue,
+          labelTextStyle: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) {
+              return const TextStyle(color: fbBlue, fontWeight: FontWeight.w600, fontSize: 12);
+            }
+            return const TextStyle(color: fbSecondaryText, fontSize: 12);
+          }),
+          iconTheme: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) {
+              return const IconThemeData(color: fbBlue);
+            }
+            return const IconThemeData(color: fbSecondaryText);
+          }),
+        ),
+        dividerTheme: const DividerThemeData(color: fbDivider, thickness: 0.5, space: 0),
+        snackBarTheme: SnackBarThemeData(
+          backgroundColor: fbDarkText,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       ),
       home: const AuthGate(),
@@ -72,7 +131,6 @@ class _AuthGateState extends State<AuthGate> {
           return;
         }
       } catch (_) {
-        // Offline but have token - trust local
         final user = prefs.getString('auth_user');
         if (user != null) {
           setState(() { _loggedIn = true; _checking = false; });
@@ -87,7 +145,7 @@ class _AuthGateState extends State<AuthGate> {
 
   @override
   Widget build(BuildContext context) {
-    if (_checking) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (_checking) return const Scaffold(body: Center(child: CircularProgressIndicator(color: fbBlue)));
     if (_loggedIn) return HomeScreen(onLogout: () => setState(() => _loggedIn = false));
     return LoginScreen(onLoginSuccess: () => setState(() => _loggedIn = true));
   }
@@ -158,90 +216,119 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft, end: Alignment.bottomRight,
-            colors: [primaryBlue, lightBlue, accentBlue],
-          ),
-        ),
+      backgroundColor: Colors.white,
+      body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Card(
-              elevation: 8,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 72, height: 72,
-                      decoration: BoxDecoration(
-                        color: primaryBlue.withValues(alpha: 0.1),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.water_drop, color: primaryBlue, size: 40),
-                    ),
-                    const SizedBox(height: 16),
-                    const Text('Loboc Meter Reader',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: primaryBlue),
-                    ),
-                    const SizedBox(height: 4),
-                    Text('Sign in to continue', style: TextStyle(color: Colors.grey[600], fontSize: 14)),
-                    const SizedBox(height: 28),
-                    TextField(
-                      controller: _usernameCtrl,
-                      decoration: InputDecoration(
-                        labelText: 'Username', prefixIcon: const Icon(Icons.person_outline),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                      textInputAction: TextInputAction.next,
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _passwordCtrl,
-                      obscureText: _obscure,
-                      decoration: InputDecoration(
-                        labelText: 'Password', prefixIcon: const Icon(Icons.lock_outline),
-                        suffixIcon: IconButton(
-                          icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
-                          onPressed: () => setState(() => _obscure = !_obscure),
-                        ),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                      onSubmitted: (_) => _login(),
-                    ),
-                    if (_error != null) ...[
-                      const SizedBox(height: 12),
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(color: Colors.red[50], borderRadius: BorderRadius.circular(8)),
-                        child: Row(children: [
-                          Icon(Icons.error_outline, color: Colors.red[700], size: 20),
-                          const SizedBox(width: 8),
-                          Expanded(child: Text(_error!, style: TextStyle(color: Colors.red[700], fontSize: 13))),
-                        ]),
-                      ),
-                    ],
-                    const SizedBox(height: 24),
-                    SizedBox(
-                      width: double.infinity, height: 48,
-                      child: FilledButton(
-                        onPressed: _loading ? null : _login,
-                        style: FilledButton.styleFrom(
-                          backgroundColor: primaryBlue,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                        child: _loading
-                            ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                            : const Text('Sign In', style: TextStyle(fontSize: 16)),
-                      ),
-                    ),
-                  ],
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Facebook-style top logo area
+                Container(
+                  width: 80, height: 80,
+                  decoration: BoxDecoration(
+                    color: fbBlue,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [BoxShadow(color: fbBlue.withValues(alpha: 0.3), blurRadius: 20, offset: const Offset(0, 8))],
+                  ),
+                  child: const Icon(Icons.water_drop, color: Colors.white, size: 44),
                 ),
-              ),
+                const SizedBox(height: 24),
+                const Text('Loboc Meter Reader',
+                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: fbDarkText),
+                ),
+                const SizedBox(height: 8),
+                const Text('Sign in to your account', style: TextStyle(color: fbSecondaryText, fontSize: 16)),
+                const SizedBox(height: 36),
+
+                // Username field - Facebook style
+                Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: fbDivider, width: 1.5),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: TextField(
+                    controller: _usernameCtrl,
+                    decoration: const InputDecoration(
+                      hintText: 'Username',
+                      hintStyle: TextStyle(color: fbSecondaryText),
+                      prefixIcon: Icon(Icons.person_outline, color: fbSecondaryText),
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                    ),
+                    textInputAction: TextInputAction.next,
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Password field
+                Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: fbDivider, width: 1.5),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: TextField(
+                    controller: _passwordCtrl,
+                    obscureText: _obscure,
+                    decoration: InputDecoration(
+                      hintText: 'Password',
+                      hintStyle: const TextStyle(color: fbSecondaryText),
+                      prefixIcon: const Icon(Icons.lock_outline, color: fbSecondaryText),
+                      suffixIcon: IconButton(
+                        icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility, color: fbSecondaryText),
+                        onPressed: () => setState(() => _obscure = !_obscure),
+                      ),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                    ),
+                    onSubmitted: (_) => _login(),
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                ),
+
+                if (_error != null) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFDE8E8),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFFCA5A5)),
+                    ),
+                    child: Row(children: [
+                      const Icon(Icons.error_outline, color: Color(0xFFDC2626), size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(_error!, style: const TextStyle(color: Color(0xFFDC2626), fontSize: 14))),
+                    ]),
+                  ),
+                ],
+
+                const SizedBox(height: 20),
+
+                // Login button - Facebook blue, full width, rounded
+                SizedBox(
+                  width: double.infinity, height: 50,
+                  child: FilledButton(
+                    onPressed: _loading ? null : _login,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: fbBlue,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      disabledBackgroundColor: fbBlue.withValues(alpha: 0.5),
+                    ),
+                    child: _loading
+                        ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5))
+                        : const Text('Log In', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+                const SizedBox(height: 40),
+                // Footer
+                const Divider(color: fbDivider),
+                const SizedBox(height: 16),
+                Text('Loboc Municipal Waterworks', style: TextStyle(color: Colors.grey[500], fontSize: 13)),
+              ],
             ),
           ),
         ),
@@ -398,7 +485,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _showUpdateDialog(data['version'] ?? '', data['download_url'] ?? '', data['release_notes'] ?? '');
         } else if (manual && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('You are on the latest version'), backgroundColor: primaryBlue));
+            const SnackBar(content: Text('You are on the latest version')));
         }
       }
     } catch (e) {
@@ -414,25 +501,33 @@ class _HomeScreenState extends State<HomeScreen> {
       bool downloading = false;
       return StatefulBuilder(builder: (ctx, setDialogState) {
         return AlertDialog(
-          title: const Row(children: [
-            Icon(Icons.system_update, color: primaryBlue),
-            SizedBox(width: 8),
-            Text('Update Available'),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(color: fbLightBlue, borderRadius: BorderRadius.circular(10)),
+              child: const Icon(Icons.system_update, color: fbBlue, size: 24),
+            ),
+            const SizedBox(width: 12),
+            const Text('Update Available', style: TextStyle(fontWeight: FontWeight.bold)),
           ]),
           content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Version $version is available.', style: const TextStyle(fontWeight: FontWeight.bold)),
+            Text('Version $version is available.', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
             const SizedBox(height: 8),
-            if (notes.isNotEmpty) Text(notes, style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+            if (notes.isNotEmpty) Text(notes, style: const TextStyle(color: fbSecondaryText, fontSize: 14)),
             if (downloading) ...[
               const SizedBox(height: 16),
-              LinearProgressIndicator(value: progress > 0 ? progress : null, color: primaryBlue),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(value: progress > 0 ? progress : null, color: fbBlue, backgroundColor: fbBg),
+              ),
               const SizedBox(height: 8),
               Text(progress > 0 ? '${(progress * 100).toStringAsFixed(0)}% downloaded' : 'Starting download...',
-                style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                style: const TextStyle(color: fbSecondaryText, fontSize: 13)),
             ],
           ]),
           actions: downloading ? [] : [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Later')),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Later', style: TextStyle(color: fbSecondaryText))),
             FilledButton.icon(
               onPressed: () async {
                 setDialogState(() => downloading = true);
@@ -465,7 +560,6 @@ class _HomeScreenState extends State<HomeScreen> {
               },
               icon: const Icon(Icons.download),
               label: const Text('Update Now'),
-              style: FilledButton.styleFrom(backgroundColor: primaryBlue),
             ),
           ],
         );
@@ -570,7 +664,6 @@ class _HomeScreenState extends State<HomeScreen> {
             totalConsumers += consumers.length as int;
           }
         }
-        // Download rates
         try {
           final rResp = await _authGet('/rates');
           if (rResp.statusCode == 200) {
@@ -580,7 +673,7 @@ class _HomeScreenState extends State<HomeScreen> {
         await _saveOfflineData();
         if (!silent && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Downloaded $totalConsumers consumers from ${_cachedBarangays.length} barangays'), backgroundColor: primaryBlue),
+            SnackBar(content: Text('Downloaded $totalConsumers consumers from ${_cachedBarangays.length} barangays')),
           );
         }
       }
@@ -623,20 +716,18 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _connectPrinter(BluetoothInfo device) async {
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Connecting to ${device.name}...'), backgroundColor: Colors.orange, duration: const Duration(seconds: 2)));
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Connecting to ${device.name}...'), duration: const Duration(seconds: 2)));
     try {
-      // Disconnect any existing connection first
       try { await PrintBluetoothThermal.disconnect; } catch (_) {}
       await Future.delayed(const Duration(milliseconds: 500));
 
       final connected = await PrintBluetoothThermal.connect(macPrinterAddress: device.macAdress);
       if (connected) {
-        // Verify connection status
         await Future.delayed(const Duration(milliseconds: 500));
         final status = await PrintBluetoothThermal.connectionStatus;
         if (status) {
           setState(() { _selectedDevice = device; _btConnected = true; });
-          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Connected to ${device.name}'), backgroundColor: primaryBlue));
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Connected to ${device.name}')));
         } else {
           setState(() { _btConnected = false; _selectedDevice = null; });
           if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Connection dropped. Try again.')));
@@ -664,7 +755,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   double _calculateBill(int consumption, String consumerType) {
-    // Filter rates for this consumer type, sorted by min_cu_m
     final rates = _cachedRates
         .where((r) => r['consumer_type'] == consumerType)
         .toList()
@@ -685,7 +775,6 @@ class _HomeScreenState extends State<HomeScreen> {
       _showPrinterDialog(consumer, reading);
       return;
     }
-    // Verify connection is still active
     try {
       final status = await PrintBluetoothThermal.connectionStatus;
       if (!status) {
@@ -702,15 +791,14 @@ class _HomeScreenState extends State<HomeScreen> {
       final dateStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
 
       List<int> bytes = [];
-      // ESC/POS commands
-      bytes += [27, 64]; // Initialize printer
-      bytes += [27, 97, 1]; // Center align
-      bytes += [27, 33, 16]; // Double height
+      bytes += [27, 64];
+      bytes += [27, 97, 1];
+      bytes += [27, 33, 16];
       bytes += 'LOBOC MUNICIPAL\n'.codeUnits;
       bytes += 'WATERWORKS\n'.codeUnits;
-      bytes += [27, 33, 0]; // Normal
+      bytes += [27, 33, 0];
       bytes += 'Meter Reading Receipt\n'.codeUnits;
-      bytes += [27, 97, 0]; // Left align
+      bytes += [27, 97, 0];
       bytes += '--------------------------------\n'.codeUnits;
       bytes += '${_leftRight('Date:', dateStr)}\n'.codeUnits;
       bytes += '${_leftRight('Name:', consumer['name'] ?? '')}\n'.codeUnits;
@@ -728,23 +816,22 @@ class _HomeScreenState extends State<HomeScreen> {
         final usage = curr - prev;
         bytes += '--------------------------------\n'.codeUnits;
         bytes += '${_leftRight('Usage (cu.m.):', '$usage')}\n'.codeUnits;
-        // Calculate and show bill amount
         final consumerType = consumer['consumer_type'] ?? 'Residential';
         final billAmount = _calculateBill(usage, consumerType);
         bytes += '${_leftRight('Type:', consumerType)}\n'.codeUnits;
         bytes += '--------------------------------\n'.codeUnits;
-        bytes += [27, 33, 16]; // Double height for amount
+        bytes += [27, 33, 16];
         bytes += '${_leftRight('AMOUNT DUE:', 'P ${billAmount.toStringAsFixed(2)}')}\n'.codeUnits;
-        bytes += [27, 33, 0]; // Normal
+        bytes += [27, 33, 0];
       }
       bytes += '--------------------------------\n'.codeUnits;
-      bytes += [27, 97, 1]; // Center
+      bytes += [27, 97, 1];
       bytes += 'Thank you!\n'.codeUnits;
       bytes += '\n\n\n'.codeUnits;
 
       final result = await PrintBluetoothThermal.writeBytes(bytes);
       if (result && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Receipt printed'), backgroundColor: primaryBlue));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Receipt printed')));
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Print may have failed. Check printer.')));
       }
@@ -757,25 +844,39 @@ class _HomeScreenState extends State<HomeScreen> {
     _scanBtDevices();
     showDialog(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, setDialogState) {
       return AlertDialog(
-        title: const Text('Connect Printer'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Connect Printer', style: TextStyle(fontWeight: FontWeight.bold)),
         content: SizedBox(width: double.maxFinite, child: Column(mainAxisSize: MainAxisSize.min, children: [
           if (_btDevices.isEmpty)
-            const Padding(padding: EdgeInsets.all(16), child: Text('No paired Bluetooth devices found.\nPlease pair your RPP02N in Settings first.', textAlign: TextAlign.center))
+            Padding(padding: const EdgeInsets.all(16), child: Column(children: [
+              Icon(Icons.bluetooth_disabled, size: 40, color: Colors.grey[400]),
+              const SizedBox(height: 12),
+              const Text('No paired Bluetooth devices found.\nPlease pair your RPP02N in Settings first.', textAlign: TextAlign.center, style: TextStyle(color: fbSecondaryText)),
+            ]))
           else
-            ...(_btDevices.map((d) => ListTile(
-              leading: const Icon(Icons.print, color: primaryBlue),
-              title: Text(d.name),
-              subtitle: Text(d.macAdress),
-              onTap: () async {
-                Navigator.pop(ctx);
-                await _connectPrinter(d);
-                if (_btConnected) _printReceipt(consumer, reading);
-              },
+            ...(_btDevices.map((d) => Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              decoration: BoxDecoration(border: Border.all(color: fbDivider), borderRadius: BorderRadius.circular(10)),
+              child: ListTile(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: fbLightBlue, borderRadius: BorderRadius.circular(8)),
+                  child: const Icon(Icons.print, color: fbBlue, size: 20),
+                ),
+                title: Text(d.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: Text(d.macAdress, style: const TextStyle(color: fbSecondaryText, fontSize: 12)),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await _connectPrinter(d);
+                  if (_btConnected) _printReceipt(consumer, reading);
+                },
+              ),
             ))),
         ])),
         actions: [
-          TextButton(onPressed: () { _scanBtDevices(); setDialogState(() {}); }, child: const Text('Refresh')),
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(onPressed: () { _scanBtDevices(); setDialogState(() {}); }, child: const Text('Refresh', style: TextStyle(color: fbBlue))),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel', style: TextStyle(color: fbSecondaryText))),
         ],
       );
     }));
@@ -793,35 +894,64 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Loboc Meter Reader'),
+        title: Row(children: [
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(color: fbBlue, borderRadius: BorderRadius.circular(8)),
+            child: const Icon(Icons.water_drop, color: Colors.white, size: 20),
+          ),
+          const SizedBox(width: 10),
+          const Text('Meter Reader', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: fbDarkText)),
+        ]),
         leading: _selectedBarangay != null && _currentTab == 0
-            ? IconButton(icon: const Icon(Icons.arrow_back),
+            ? IconButton(icon: const Icon(Icons.arrow_back, color: fbDarkText),
                 onPressed: () => setState(() { _selectedBarangay = null; _consumers = []; _searchCtrl.clear(); }))
             : null,
         actions: [
           if (_syncStatus.isNotEmpty)
             Padding(padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Center(child: Text(_syncStatus, style: const TextStyle(fontSize: 12)))),
+              child: Center(child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(color: fbLightBlue, borderRadius: BorderRadius.circular(12)),
+                child: Text(_syncStatus, style: const TextStyle(fontSize: 12, color: fbBlue, fontWeight: FontWeight.w600)),
+              ))),
           if (_pendingReadings.isNotEmpty)
-            Badge(label: Text('${_pendingReadings.length}'),
-              child: IconButton(icon: const Icon(Icons.sync), onPressed: _syncPending, tooltip: 'Sync now')),
+            Padding(padding: const EdgeInsets.only(right: 4),
+              child: Badge(
+                label: Text('${_pendingReadings.length}'),
+                backgroundColor: const Color(0xFFFA383E),
+                child: IconButton(icon: const Icon(Icons.sync, color: fbBlue), onPressed: _syncPending, tooltip: 'Sync now'),
+              )),
         ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(0.5),
+          child: Container(height: 0.5, color: fbDivider),
+        ),
       ),
-      body: _loading ? const Center(child: CircularProgressIndicator()) : _buildBody(),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentTab,
-        onDestinationSelected: (i) => setState(() => _currentTab = i),
-        indicatorColor: primaryBlue.withValues(alpha: 0.15),
-        destinations: [
-          const NavigationDestination(icon: Icon(Icons.water_drop), label: 'Readings'),
-          NavigationDestination(
-            icon: Badge(isLabelVisible: _pendingReadings.isNotEmpty, label: Text('${_pendingReadings.length}'),
-              child: const Icon(Icons.pending_actions)),
-            label: 'Pending',
-          ),
-          const NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
-        ],
-      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator(color: fbBlue))
+          : _buildBody(),
+      bottomNavigationBar: Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(height: 0.5, color: fbDivider),
+        NavigationBar(
+          height: 65,
+          selectedIndex: _currentTab,
+          onDestinationSelected: (i) => setState(() => _currentTab = i),
+          destinations: [
+            const NavigationDestination(icon: Icon(Icons.water_drop_outlined), selectedIcon: Icon(Icons.water_drop), label: 'Readings'),
+            NavigationDestination(
+              icon: Badge(isLabelVisible: _pendingReadings.isNotEmpty, label: Text('${_pendingReadings.length}'),
+                backgroundColor: const Color(0xFFFA383E),
+                child: const Icon(Icons.pending_actions_outlined)),
+              selectedIcon: Badge(isLabelVisible: _pendingReadings.isNotEmpty, label: Text('${_pendingReadings.length}'),
+                backgroundColor: const Color(0xFFFA383E),
+                child: const Icon(Icons.pending_actions)),
+              label: 'Pending',
+            ),
+            const NavigationDestination(icon: Icon(Icons.menu), selectedIcon: Icon(Icons.menu), label: 'Menu'),
+          ],
+        ),
+      ]),
     );
   }
 
@@ -836,34 +966,66 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildBarangayList() {
     return Column(children: [
+      // Facebook-style story/header section
       Container(
         width: double.infinity, padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(gradient: LinearGradient(colors: [primaryBlue.withValues(alpha: 0.08), primaryBlue.withValues(alpha: 0.03)])),
-        child: Column(children: [
-          const Icon(Icons.water_drop, size: 40, color: primaryBlue),
-          const SizedBox(height: 8),
-          Text('Reading Date: $_readingDate', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          const SizedBox(height: 4),
-          Text('${_pendingReadings.length} pending readings', style: TextStyle(color: Colors.grey[600])),
+        color: Colors.white,
+        child: Row(children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: fbLightBlue, borderRadius: BorderRadius.circular(12)),
+            child: const Icon(Icons.calendar_today, size: 24, color: fbBlue),
+          ),
+          const SizedBox(width: 14),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(_readingDate, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: fbDarkText)),
+            const SizedBox(height: 2),
+            Text('${_pendingReadings.length} pending readings', style: const TextStyle(color: fbSecondaryText, fontSize: 14)),
+          ])),
+          if (_pendingReadings.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(color: const Color(0xFFFA383E), borderRadius: BorderRadius.circular(16)),
+              child: Text('${_pendingReadings.length}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+            ),
         ]),
       ),
-      const Padding(padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-        child: Align(alignment: Alignment.centerLeft, child: Text('Select Barangay', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)))),
+      const SizedBox(height: 8),
+      // Section header
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+        color: Colors.white,
+        child: const Text('Select Barangay', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: fbDarkText)),
+      ),
+      const SizedBox(height: 1),
       Expanded(
         child: ListView.builder(
+          padding: const EdgeInsets.only(top: 2),
           itemCount: _barangays.length,
           itemBuilder: (context, index) {
             final b = _barangays[index];
             final cached = _cachedConsumers[b['id'].toString()];
-            return Card(
-              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              child: ListTile(
-                leading: CircleAvatar(backgroundColor: primaryBlue.withValues(alpha: 0.12), child: const Icon(Icons.location_on, color: primaryBlue)),
-                title: Text(b['name'], style: const TextStyle(fontWeight: FontWeight.w600)),
-                subtitle: cached != null ? Text('${cached.length} consumers cached') : null,
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => _loadConsumers(b),
-              ),
+            return Container(
+              color: Colors.white,
+              child: Column(children: [
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  leading: Container(
+                    width: 44, height: 44,
+                    decoration: BoxDecoration(color: fbLightBlue, borderRadius: BorderRadius.circular(12)),
+                    child: const Icon(Icons.location_on, color: fbBlue, size: 22),
+                  ),
+                  title: Text(b['name'], style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16, color: fbDarkText)),
+                  subtitle: cached != null
+                      ? Text('${cached.length} consumers', style: const TextStyle(color: fbSecondaryText, fontSize: 13))
+                      : null,
+                  trailing: const Icon(Icons.chevron_right, color: fbSecondaryText),
+                  onTap: () => _loadConsumers(b),
+                ),
+                if (index < _barangays.length - 1)
+                  const Padding(padding: EdgeInsets.only(left: 76), child: Divider()),
+              ]),
             );
           },
         ),
@@ -878,85 +1040,119 @@ class _HomeScreenState extends State<HomeScreen> {
     final readCount = _consumers.where((c) => _pendingReadings.containsKey('${c['id']}_$_readingDate')).length;
 
     return Column(children: [
+      // Header
       Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(gradient: LinearGradient(colors: [primaryBlue.withValues(alpha: 0.08), primaryBlue.withValues(alpha: 0.03)])),
+        padding: const EdgeInsets.all(16),
+        color: Colors.white,
         child: Row(children: [
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(_selectedBarangay?['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-            Text('$readCount / ${_consumers.length} read  |  $_readingDate', style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+            Text(_selectedBarangay?['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: fbDarkText)),
+            const SizedBox(height: 4),
+            Row(children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(color: fbLightBlue, borderRadius: BorderRadius.circular(10)),
+                child: Text('$readCount / ${_consumers.length} read', style: const TextStyle(color: fbBlue, fontSize: 13, fontWeight: FontWeight.w600)),
+              ),
+              const SizedBox(width: 8),
+              Text(_readingDate, style: const TextStyle(color: fbSecondaryText, fontSize: 13)),
+            ]),
           ])),
           if (readCount > 0)
-            FilledButton.icon(onPressed: _syncPending, icon: const Icon(Icons.sync, size: 18), label: const Text('Sync'),
-              style: FilledButton.styleFrom(backgroundColor: primaryBlue)),
+            FilledButton.icon(onPressed: _syncPending, icon: const Icon(Icons.sync, size: 18), label: const Text('Sync')),
         ]),
       ),
-      Padding(padding: const EdgeInsets.all(8),
-        child: TextField(controller: _searchCtrl,
-          decoration: InputDecoration(hintText: 'Search consumer...', prefixIcon: const Icon(Icons.search),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)), isDense: true, filled: true, fillColor: Colors.grey[50]),
-          onChanged: (_) => setState(() {}))),
+      // Facebook-style search bar
+      Container(
+        color: Colors.white,
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        child: Container(
+          decoration: BoxDecoration(color: fbBg, borderRadius: BorderRadius.circular(20)),
+          child: TextField(
+            controller: _searchCtrl,
+            decoration: const InputDecoration(
+              hintText: 'Search consumers...',
+              hintStyle: TextStyle(color: fbSecondaryText),
+              prefixIcon: Icon(Icons.search, color: fbSecondaryText),
+              border: InputBorder.none,
+              contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+        ),
+      ),
+      const SizedBox(height: 4),
       Expanded(
         child: ListView.builder(
+          padding: const EdgeInsets.only(bottom: 8),
           itemCount: filtered.length,
           itemBuilder: (context, index) {
             final c = filtered[index];
             final key = '${c['id']}_$_readingDate';
             final hasReading = _pendingReadings.containsKey(key);
-            return Card(
-              margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              color: hasReading ? Colors.blue[50] : null,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8),
-                side: BorderSide(color: hasReading ? primaryBlue : Colors.grey[300]!, width: hasReading ? 1.5 : 0.5)),
+            return Container(
+              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: hasReading ? Border.all(color: fbBlue.withValues(alpha: 0.3), width: 1.5) : null,
+              ),
               child: Padding(padding: const EdgeInsets.all(12),
                 child: Row(children: [
-                  Container(width: 4, height: 50,
-                    decoration: BoxDecoration(color: hasReading ? primaryBlue : Colors.grey[300], borderRadius: BorderRadius.circular(2))),
+                  // Status indicator
+                  Container(
+                    width: 40, height: 40,
+                    decoration: BoxDecoration(
+                      color: hasReading ? fbBlue : fbBg,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Icon(
+                      hasReading ? Icons.check : Icons.speed,
+                      color: hasReading ? Colors.white : fbSecondaryText,
+                      size: 20,
+                    ),
+                  ),
                   const SizedBox(width: 12),
                   Expanded(flex: 3, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(c['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    Text(c['name'], style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: fbDarkText)),
                     const SizedBox(height: 2),
-                    Text(c['account_code'], style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                    Text(c['account_code'], style: const TextStyle(color: fbSecondaryText, fontSize: 13)),
                     if (c['last_reading'] != null)
                       Padding(padding: const EdgeInsets.only(top: 4),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: primaryBlue.withValues(alpha: 0.08),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Row(mainAxisSize: MainAxisSize.min, children: [
-                            const Icon(Icons.speed, size: 16, color: primaryBlue),
-                            const SizedBox(width: 4),
-                            Text('Last: ${c['last_reading']}',
-                              style: const TextStyle(color: primaryBlue, fontSize: 14, fontWeight: FontWeight.bold)),
-                            Text('  ${c['last_reading_date']}',
-                              style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-                          ]),
-                        )),
+                        child: Text('Last: ${c['last_reading']}  |  ${c['last_reading_date']}',
+                          style: const TextStyle(color: fbSecondaryText, fontSize: 12)),
+                      ),
                   ])),
+                  const SizedBox(width: 8),
                   Column(children: [
-                    SizedBox(width: 100, child: TextField(
+                    SizedBox(width: 90, child: TextField(
                       controller: _readingControllers[c['id']],
-                      decoration: InputDecoration(hintText: 'Reading',
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: hasReading ? primaryBlue : Colors.grey[400]!)),
-                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: primaryBlue, width: 2)),
+                      decoration: InputDecoration(
+                        hintText: 'Reading',
+                        hintStyle: const TextStyle(color: fbSecondaryText, fontSize: 14),
+                        filled: true,
+                        fillColor: hasReading ? fbLightBlue : fbBg,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
                         isDense: true, contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                        suffixIcon: hasReading ? const Icon(Icons.check_circle, color: primaryBlue, size: 20) : null),
+                        suffixIcon: hasReading ? const Icon(Icons.check_circle, color: fbBlue, size: 18) : null,
+                      ),
                       keyboardType: TextInputType.number, textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: fbDarkText),
                       onChanged: (v) => _saveReading(c['id'], v),
                     )),
                     if (hasReading)
-                      Padding(padding: const EdgeInsets.only(top: 4),
-                        child: SizedBox(width: 100, height: 28,
-                          child: OutlinedButton.icon(
+                      Padding(padding: const EdgeInsets.only(top: 6),
+                        child: SizedBox(width: 90, height: 30,
+                          child: TextButton.icon(
                             onPressed: () => _printReceipt(Map<String, dynamic>.from(c), _pendingReadings[key]),
                             icon: const Icon(Icons.print, size: 14),
-                            label: const Text('Print', style: TextStyle(fontSize: 11)),
-                            style: OutlinedButton.styleFrom(foregroundColor: primaryBlue, padding: EdgeInsets.zero,
-                              side: const BorderSide(color: primaryBlue, width: 0.5)),
+                            label: const Text('Print', style: TextStyle(fontSize: 12)),
+                            style: TextButton.styleFrom(
+                              foregroundColor: fbBlue,
+                              padding: EdgeInsets.zero,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              backgroundColor: fbLightBlue,
+                            ),
                           ))),
                   ]),
                 ])),
@@ -970,9 +1166,15 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildPendingList() {
     if (_pendingReadings.isEmpty) {
       return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Icon(Icons.check_circle_outline, size: 64, color: Colors.grey[400]),
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(color: fbBg, shape: BoxShape.circle),
+          child: Icon(Icons.check_circle_outline, size: 56, color: Colors.grey[400]),
+        ),
         const SizedBox(height: 16),
-        Text('No pending readings', style: TextStyle(color: Colors.grey[600], fontSize: 16)),
+        const Text('No pending readings', style: TextStyle(color: fbSecondaryText, fontSize: 17, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 4),
+        const Text('All readings have been synced', style: TextStyle(color: fbSecondaryText, fontSize: 14)),
       ]));
     }
     final entries = _pendingReadings.entries.toList();
@@ -983,20 +1185,29 @@ class _HomeScreenState extends State<HomeScreen> {
       grouped.putIfAbsent(date, () => []).add(entry);
     }
     return Column(children: [
-      Container(padding: const EdgeInsets.all(16), child: Row(children: [
-        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('${entries.length} pending readings', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          Text('Tap sync to upload', style: TextStyle(color: Colors.grey[600])),
+      Container(
+        padding: const EdgeInsets.all(16),
+        color: Colors.white,
+        child: Row(children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(color: const Color(0xFFFFF3E0), borderRadius: BorderRadius.circular(12)),
+            child: const Icon(Icons.pending_actions, color: Color(0xFFE65100), size: 24),
+          ),
+          const SizedBox(width: 14),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('${entries.length} pending readings', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: fbDarkText)),
+            const Text('Tap sync to upload', style: TextStyle(color: fbSecondaryText, fontSize: 14)),
+          ])),
+          FilledButton.icon(onPressed: _syncPending, icon: const Icon(Icons.sync, size: 18), label: const Text('Sync')),
         ]),
-        const Spacer(),
-        FilledButton.icon(onPressed: _syncPending, icon: const Icon(Icons.sync), label: const Text('Sync Now'),
-          style: FilledButton.styleFrom(backgroundColor: primaryBlue)),
-      ])),
+      ),
+      const SizedBox(height: 8),
       Expanded(child: ListView(
         children: grouped.entries.map((dateGroup) {
           return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-              child: Text(dateGroup.key, style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey[600]))),
+            Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+              child: Text(dateGroup.key, style: const TextStyle(fontWeight: FontWeight.bold, color: fbSecondaryText, fontSize: 14))),
             ...dateGroup.value.map((entry) {
               final parts = entry.key.split('_');
               final consumerId = parts[0];
@@ -1006,12 +1217,24 @@ class _HomeScreenState extends State<HomeScreen> {
                   if (c['id'].toString() == consumerId) { consumerName = c['name']; break; }
                 }
               }
-              return Card(margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+              return Container(
+                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
                 child: ListTile(
-                  leading: CircleAvatar(backgroundColor: primaryBlue.withValues(alpha: 0.1), child: const Icon(Icons.speed, color: primaryBlue)),
-                  title: Text(consumerName),
-                  trailing: Text('${entry.value}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                ));
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                  leading: Container(
+                    width: 40, height: 40,
+                    decoration: BoxDecoration(color: fbLightBlue, borderRadius: BorderRadius.circular(10)),
+                    child: const Icon(Icons.speed, color: fbBlue, size: 20),
+                  ),
+                  title: Text(consumerName, style: const TextStyle(fontWeight: FontWeight.w600, color: fbDarkText)),
+                  trailing: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(color: fbLightBlue, borderRadius: BorderRadius.circular(16)),
+                    child: Text('${entry.value}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: fbBlue)),
+                  ),
+                ),
+              );
             }),
           ]);
         }).toList(),
@@ -1020,114 +1243,183 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildSettings() {
-    return ListView(padding: const EdgeInsets.all(16), children: [
-      Card(child: Padding(padding: const EdgeInsets.all(16), child: Row(children: [
-        CircleAvatar(radius: 24, backgroundColor: primaryBlue,
-          child: Text((_userName ?? 'U')[0].toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold))),
-        const SizedBox(width: 16),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(_userName ?? 'User', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          Text(_userRole ?? '', style: TextStyle(color: Colors.grey[600])),
-        ])),
-        OutlinedButton.icon(onPressed: _logout, icon: const Icon(Icons.logout, size: 18), label: const Text('Logout'),
-          style: OutlinedButton.styleFrom(foregroundColor: Colors.red)),
-      ]))),
+    return ListView(padding: const EdgeInsets.all(12), children: [
+      // User profile card - Facebook style
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+        child: Row(children: [
+          Container(
+            width: 52, height: 52,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(colors: [fbBlue, Color(0xFF42B4E6)]),
+              borderRadius: BorderRadius.circular(26),
+            ),
+            child: Center(child: Text((_userName ?? 'U')[0].toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold))),
+          ),
+          const SizedBox(width: 14),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(_userName ?? 'User', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: fbDarkText)),
+            const SizedBox(height: 2),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(color: fbLightBlue, borderRadius: BorderRadius.circular(8)),
+              child: Text(_userRole ?? '', style: const TextStyle(color: fbBlue, fontSize: 13, fontWeight: FontWeight.w600)),
+            ),
+          ])),
+          TextButton.icon(
+            onPressed: _logout,
+            icon: const Icon(Icons.logout, size: 18),
+            label: const Text('Log out'),
+            style: TextButton.styleFrom(foregroundColor: const Color(0xFFFA383E)),
+          ),
+        ]),
+      ),
       const SizedBox(height: 12),
-      Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Reading Date', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-        const SizedBox(height: 12),
-        ListTile(
-          leading: const Icon(Icons.calendar_today, color: primaryBlue),
-          title: Text(_readingDate, style: const TextStyle(fontSize: 18)),
-          shape: RoundedRectangleBorder(side: const BorderSide(color: Colors.grey), borderRadius: BorderRadius.circular(8)),
+
+      // Settings sections - Facebook menu style
+      _buildSettingsSection('Reading Date', [
+        _buildSettingsTile(
+          Icons.calendar_today, 'Current Date', _readingDate,
+          trailing: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(color: fbLightBlue, borderRadius: BorderRadius.circular(8)),
+            child: const Text('Change', style: TextStyle(color: fbBlue, fontWeight: FontWeight.w600, fontSize: 13)),
+          ),
           onTap: () async {
             final date = await showDatePicker(context: context, initialDate: DateTime.now(), firstDate: DateTime(2020), lastDate: DateTime.now().add(const Duration(days: 30)));
             if (date != null) setState(() => _readingDate = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}');
           },
         ),
-      ]))),
+      ]),
       const SizedBox(height: 12),
-      Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Offline Data', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-        const SizedBox(height: 4),
-        Text('Auto-syncs every 2 min, auto-downloads every 10 min', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-        const SizedBox(height: 12),
-        _infoRow(Icons.location_on, 'Cached barangays', '${_cachedBarangays.length}'),
-        _infoRow(Icons.people, 'Cached consumer lists', '${_cachedConsumers.length}'),
-        _infoRow(Icons.pending_actions, 'Pending readings', '${_pendingReadings.length}'),
-        const SizedBox(height: 16),
-        SizedBox(width: double.infinity, child: FilledButton.icon(
-          onPressed: () => _downloadAllData(), icon: const Icon(Icons.download), label: const Text('Download All Data Now'),
-          style: FilledButton.styleFrom(backgroundColor: primaryBlue))),
-      ]))),
+
+      _buildSettingsSection('Offline Data', [
+        _buildSettingsTile(Icons.location_on, 'Cached barangays', '${_cachedBarangays.length}'),
+        _buildSettingsTile(Icons.people, 'Cached consumer lists', '${_cachedConsumers.length}'),
+        _buildSettingsTile(Icons.pending_actions, 'Pending readings', '${_pendingReadings.length}'),
+        Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          child: SizedBox(width: double.infinity, child: FilledButton.icon(
+            onPressed: () => _downloadAllData(),
+            icon: const Icon(Icons.download, size: 18),
+            label: const Text('Download All Data'),
+          ))),
+      ], subtitle: 'Auto-syncs every 2 min, auto-downloads every 10 min'),
       const SizedBox(height: 12),
-      Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Bluetooth Printer', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-        const SizedBox(height: 4),
-        Text('Connect to RPP02N or compatible thermal printer', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-        const SizedBox(height: 12),
+
+      _buildSettingsSection('Bluetooth Printer', [
         if (_btConnected && _selectedDevice != null)
-          ListTile(
-            leading: const Icon(Icons.print, color: primaryBlue),
-            title: Text(_selectedDevice!.name),
-            subtitle: const Text('Connected', style: TextStyle(color: Colors.green)),
-            trailing: OutlinedButton(onPressed: _disconnectPrinter, child: const Text('Disconnect')),
-            shape: RoundedRectangleBorder(side: const BorderSide(color: Colors.green), borderRadius: BorderRadius.circular(8)),
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF0FFF0),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: fbGreen.withValues(alpha: 0.3)),
+            ),
+            child: Row(children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
+                child: const Icon(Icons.print, color: fbGreen, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(_selectedDevice!.name, style: const TextStyle(fontWeight: FontWeight.w600, color: fbDarkText)),
+                const Text('Connected', style: TextStyle(color: fbGreen, fontSize: 13, fontWeight: FontWeight.w600)),
+              ])),
+              TextButton(
+                onPressed: _disconnectPrinter,
+                child: const Text('Disconnect', style: TextStyle(color: fbSecondaryText)),
+              ),
+            ]),
           )
         else
-          SizedBox(width: double.infinity, child: FilledButton.icon(
-            onPressed: () {
-              _scanBtDevices();
-              showDialog(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, setDialogState) {
-                return AlertDialog(
-                  title: const Text('Select Printer'),
-                  content: SizedBox(width: double.maxFinite, child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    if (_btDevices.isEmpty)
-                      const Padding(padding: EdgeInsets.all(16), child: Text('No paired devices.\nPair your RPP02N in phone Settings first.', textAlign: TextAlign.center))
-                    else
-                      ...(_btDevices.map((d) => ListTile(
-                        leading: const Icon(Icons.bluetooth, color: primaryBlue),
-                        title: Text(d.name),
-                        subtitle: Text(d.macAdress),
-                        onTap: () { Navigator.pop(ctx); _connectPrinter(d); },
-                      ))),
-                  ])),
-                  actions: [
-                    TextButton(onPressed: () { _scanBtDevices(); setDialogState(() {}); }, child: const Text('Refresh')),
-                    TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-                  ],
-                );
-              }));
-            },
-            icon: const Icon(Icons.bluetooth), label: const Text('Connect Printer'),
-            style: FilledButton.styleFrom(backgroundColor: primaryBlue))),
-      ]))),
+          Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: SizedBox(width: double.infinity, child: OutlinedButton.icon(
+              onPressed: () {
+                _scanBtDevices();
+                showDialog(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, setDialogState) {
+                  return AlertDialog(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    title: const Text('Select Printer', style: TextStyle(fontWeight: FontWeight.bold)),
+                    content: SizedBox(width: double.maxFinite, child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      if (_btDevices.isEmpty)
+                        Padding(padding: const EdgeInsets.all(16), child: Column(children: [
+                          Icon(Icons.bluetooth_disabled, size: 40, color: Colors.grey[400]),
+                          const SizedBox(height: 12),
+                          const Text('No paired devices.\nPair your RPP02N in phone Settings first.', textAlign: TextAlign.center, style: TextStyle(color: fbSecondaryText)),
+                        ]))
+                      else
+                        ...(_btDevices.map((d) => Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          decoration: BoxDecoration(border: Border.all(color: fbDivider), borderRadius: BorderRadius.circular(10)),
+                          child: ListTile(
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            leading: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(color: fbLightBlue, borderRadius: BorderRadius.circular(8)),
+                              child: const Icon(Icons.bluetooth, color: fbBlue, size: 20),
+                            ),
+                            title: Text(d.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                            subtitle: Text(d.macAdress, style: const TextStyle(color: fbSecondaryText, fontSize: 12)),
+                            onTap: () { Navigator.pop(ctx); _connectPrinter(d); },
+                          ),
+                        ))),
+                    ])),
+                    actions: [
+                      TextButton(onPressed: () { _scanBtDevices(); setDialogState(() {}); }, child: const Text('Refresh', style: TextStyle(color: fbBlue))),
+                      TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel', style: TextStyle(color: fbSecondaryText))),
+                    ],
+                  );
+                }));
+              },
+              icon: const Icon(Icons.bluetooth, size: 18),
+              label: const Text('Connect Printer'),
+            ))),
+      ], subtitle: 'Connect to RPP02N or compatible thermal printer'),
       const SizedBox(height: 12),
-      Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('About', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-        const SizedBox(height: 8),
-        const Text('Loboc Municipal Waterworks'),
-        Text('Meter Reader App v$appVersion (build $appBuildNumber)', style: TextStyle(color: Colors.grey[600])),
-        const SizedBox(height: 4),
-        Text('Server: $apiBase', style: TextStyle(color: Colors.grey[500], fontSize: 12)),
-        const SizedBox(height: 12),
-        SizedBox(width: double.infinity, child: OutlinedButton.icon(
-          onPressed: () => _checkForUpdate(manual: true),
-          icon: const Icon(Icons.system_update),
-          label: const Text('Check for Updates'),
-          style: OutlinedButton.styleFrom(foregroundColor: primaryBlue),
-        )),
-      ]))),
+
+      _buildSettingsSection('About', [
+        _buildSettingsTile(Icons.info_outline, 'App', 'v$appVersion (build $appBuildNumber)'),
+        _buildSettingsTile(Icons.business, 'Loboc Municipal Waterworks', ''),
+        _buildSettingsTile(Icons.dns_outlined, 'Server', apiBase),
+        Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          child: SizedBox(width: double.infinity, child: OutlinedButton.icon(
+            onPressed: () => _checkForUpdate(manual: true),
+            icon: const Icon(Icons.system_update, size: 18),
+            label: const Text('Check for Updates'),
+          ))),
+      ]),
     ]);
   }
 
-  Widget _infoRow(IconData icon, String label, String value) {
-    return Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: Row(children: [
-      Icon(icon, size: 20, color: Colors.grey[600]),
-      const SizedBox(width: 8),
-      Text(label),
-      const Spacer(),
-      Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
-    ]));
+  Widget _buildSettingsSection(String title, List<Widget> children, {String? subtitle}) {
+    return Container(
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+          child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: fbDarkText))),
+        if (subtitle != null)
+          Padding(padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
+            child: Text(subtitle, style: const TextStyle(color: fbSecondaryText, fontSize: 13))),
+        const SizedBox(height: 4),
+        ...children,
+      ]),
+    );
+  }
+
+  Widget _buildSettingsTile(IconData icon, String label, String value, {Widget? trailing, VoidCallback? onTap}) {
+    return ListTile(
+      dense: true,
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(color: fbBg, borderRadius: BorderRadius.circular(8)),
+        child: Icon(icon, size: 20, color: fbSecondaryText),
+      ),
+      title: Text(label, style: const TextStyle(fontSize: 15, color: fbDarkText)),
+      trailing: trailing ?? (value.isNotEmpty ? Text(value, style: const TextStyle(fontWeight: FontWeight.w600, color: fbSecondaryText)) : null),
+      onTap: onTap,
+    );
   }
 }
