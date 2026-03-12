@@ -12,8 +12,8 @@ import 'package:open_filex/open_filex.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 const String apiBase = 'https://loboc.rgbwater.com/api';
-const String appVersion = '2.3.0';
-const int appBuildNumber = 4;
+const String appVersion = '2.4.0';
+const int appBuildNumber = 5;
 
 // Facebook-style colors
 const Color fbBlue = Color(0xFF1877F2);
